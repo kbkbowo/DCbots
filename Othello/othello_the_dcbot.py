@@ -11,6 +11,11 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 from copy import deepcopy
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from tqdm.notebook import tqdm
 
 #  1:black, -1:white
 
@@ -30,6 +35,7 @@ class Othello() :
       self.round = 1
       self.msg_queue = f"It's {self.players[self.side]}'s turn now.\n\n"
       self.record = []
+      self.winner = 0
 
     def show(self) :
       alphs = ["A", "B", "C", "D", "E", "F", "G", "H"]
@@ -165,10 +171,12 @@ class Othello() :
       self.msg_queue += f"Points count : \nblack:white = {black_p}:{white_p}\n"
       if black_p > white_p : 
         self.msg_queue += "Black wins!\n"
+        self.winner = 1
       elif black_p == white_p :
         self.msg_queue += "Tie!\n"
       else :
         self.msg_queue += "White wins!\n"
+        self.winner = -1
       self.msg_queue += f"本次棋譜:\n{self.record}"
 
     
@@ -224,6 +232,42 @@ class bot3() : # A moderate bot with somehow greedy strategy and knows the impor
     print(chosen)
     return chosen
 
+class bot4() :
+  def __init__(self, network) : 
+    self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    self.decision_nn = network.to(self.device)
+    self.reverted = False
+  def make_a_move(self, game) :
+    board = torch.from_numpy(game.board * game.side).float().to(self.device)
+    with torch.no_grad() :
+      self.decision_nn.eval()
+      mat = self.decision_nn(board).cpu() * torch.from_numpy(np.sign(game.available))
+      self.decision_nn.train()
+    if (mat.detach().numpy() == 0).all() :
+      return bot1().make_a_move(game)
+    chosen = int(torch.argmax(mat))
+    return chr(chosen//8+97) + str(chosen%8+1)
+
+class Qnetwork(nn.Module) :
+  def __init__(self) :
+    super().__init__()
+    self.fc = nn.Sequential(
+        nn.Linear(64, 256),
+        nn.ReLU(),
+        nn.Linear(256, 1024),
+        nn.ReLU(),
+        nn.Linear(1024, 512),
+        nn.ReLU(),
+        nn.Linear(512, 256),
+        nn.ReLU(),
+        nn.Linear(256, 64),
+        nn.ReLU()
+    )
+  def forward(self, x) :
+    x = x.view(-1, 64)
+    x = self.fc(x)
+    return x.view(-1, 8, 8)
+
 import discord
 from discord.ext import commands
 
@@ -246,11 +290,17 @@ async def on_message(msg):
     global players
     global colors
     mode = "idle"
+    PATH = "./best_network_info"
+    device = "cuda"
+    net = Qnetwork().to(device)
+    checkpoint = torch.load(PATH)
+    net.load_state_dict(checkpoint["network"])
     player_list = {
         "human" : "human", 
         "bot1" : bot1(),
         "bot2" : bot2(),
-        "bot3" : bot3()
+        "bot3" : bot3(),
+        "bot4" : bot4(net)
     }
     players = { 1:"human", -1:"human" }
     colors = { 1:"black", -1:"white"}
