@@ -360,4 +360,4 @@ async def on_message(msg):
 
     
 
-bot.run('ODYyMTE5MDY1MTg3MjU0Mjcz.YOTs8g.Db_9PqEgdvOwlvU-GrR_ypNPkmk')
+bot.run('your token')
